@@ -89,7 +89,7 @@ static void test_zrocks_buffer_read(uint64_t slba, void *buf_read,
     }
 }
 
-static void test_zrocks_file_metadata(void) {
+static void test_zrocks_metadata(void) {
     printf("\n");
     struct ztl_metadata *metadata;
     void *               buf_write, *buf_read;
@@ -106,58 +106,37 @@ static void test_zrocks_file_metadata(void) {
     if (!buf_write || !buf_read)
         goto FREE;
     test_zrocks_metadata_fill_buffer(buf_write, size);
+	zrocks_reset_file_md(XNVME_SPEC_ZND_CMD_MGMT_SEND_RESET);
 
-    int ret;
-    ret = zrocks_write_file_metadata(buf_write, size);
-    cunit_zrocks_metadata_assert_int("zrocks_file_metadata:", ret);
+	int ret;
+	ret = zrocks_write_file_metadata(buf_write, size);
+    cunit_zrocks_metadata_assert_int("zrocks_metadata:", ret);
 
     test_zrocks_buffer_read(slba, buf_read, size);
     cunit_zrocks_metadata_assert_equal(buf_write, buf_read);
 
-FREE:
-    zrocks_free(buf_write);
-    zrocks_free(buf_read);
-}
 
-static void test_zrocks_reset_file_metadata_zone(void) {
-    printf("\n");
-    struct ztl_metadata *metadata;
-    void *               buf_write, *buf_read;
-    struct xztl_core *   core;
-    get_xztl_core(&core);
-    uint64_t slba, size, zone_size;
-    metadata  = get_ztl_metadata();
-    slba      = metadata->file_slba;
-    size      = buffer_sz_file_metadata;
-    zone_size = core->media->geo.nbytes_zn;
-
-    buf_write = zrocks_alloc(size);
-    buf_read  = zrocks_alloc(size);
-    cunit_zrocks_metadata_assert_ptr("zrocks_write:alloc", buf_write);
-    cunit_zrocks_metadata_assert_ptr("zrocks_write:alloc", buf_read);
-    if (!buf_write || !buf_read)
-        goto FREE;
-    test_zrocks_metadata_fill_buffer(buf_write, size);
-    int ret;
-
-    while (metadata->file_slba * core->media->geo.nbytes + size < zone_size) {
-        ret = zrocks_write_file_metadata(buf_write, size);
+	while(size < (metadata.metadata_zone[metadata.zone_num - 1].capacity
+		- metadata.file_slba) * core->media->geo.nbytes){
+		ret = zrocks_write_file_metadata(buf_write, size);
         cunit_zrocks_metadata_assert_int("zrocks_write:write", ret);
-    }
-
-    uint64_t slba_before;
-    slba_before = metadata->file_slba;
-    ret         = zrocks_write_file_metadata(buf_write, size);
-    cunit_zrocks_metadata_assert_int("zrocks_write:write", ret);
-    CU_ASSERT(metadata->file_slba < slba_before);
-
-    test_zrocks_buffer_read(0, buf_read, size);
-    cunit_zrocks_metadata_assert_equal(buf_write, buf_read);
+	}
+		
+	uint64_t slba_before;
+	slba_before = metadata->file_slba;
+	ret		    = zrocks_write_file_metadata(buf_write, size);
+	cunit_zrocks_metadata_assert_int("zrocks_write:write", ret);
+	CU_ASSERT(metadata->file_slba < slba_before);
+	
+	test_zrocks_buffer_read(0, buf_read, size);
+	cunit_zrocks_metadata_assert_equal(buf_write, buf_read);
 
 FREE:
     zrocks_free(buf_write);
     zrocks_free(buf_read);
 }
+
+
 int main(int argc, const char **argv) {
     int failed = -1;
 
@@ -185,10 +164,8 @@ int main(int argc, const char **argv) {
 
     if ((CU_add_test(pSuite, "Initialize ZNS ZRocks",
                      test_zrocks_metadata_init) == NULL) ||
-        (CU_add_test(pSuite, "Write and read file metadata",
-                     test_zrocks_file_metadata) == NULL) ||
-        (CU_add_test(pSuite, "reset file metadata zone",
-                     test_zrocks_reset_file_metadata_zone) == NULL) ||
+        (CU_add_test(pSuite, "Write and read metadata, when capacity not enough,reset the zone",
+                     test_zrocks_metadata) == NULL) ||
         (CU_add_test(pSuite, "Close ZRocks", test_zrocks_metadata_exit) ==
          NULL)) {
         failed = 1;
